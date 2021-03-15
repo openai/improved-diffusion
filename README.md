@@ -74,3 +74,55 @@ Just like for training, you can run `image_sample.py` through MPI to use multipl
 You can change the number of sampling steps using the `--timestep_respacing` argument. For example, `--timestep_respacing 250` uses 250 steps to sample. Passing `--timestep_respacing ddim250` is similar, but uses the uniform stride from the [DDIM paper](https://arxiv.org/abs/2010.02502) rather than our stride.
 
 To sample using [DDIM](https://arxiv.org/abs/2010.02502), pass `--use_ddim True`.
+
+## Experiment hyper-parameters
+
+This section includes run flags for training the main models in the paper. Note that the batch sizes are specified for single-GPU training, even though most of these runs will not naturally fit on a single GPU. To address this, either set `--microbatch` to a small value (e.g. 4) to train on one GPU, or run with MPI and divide `--batch_size` by the number of GPUs.
+
+Unconditional ImageNet-64 with our `L_hybrid` objective and cosine noise schedule:
+
+```bash
+MODEL_FLAGS="--image_size 64 --num_channels 128 --num_res_blocks 3 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 128"
+```
+
+Unconditional CIFAR-10 with our `L_hybrid` objective and cosine noise schedule:
+
+```bash
+MODEL_FLAGS="--image_size 32 --num_channels 128 --num_res_blocks 3 --learn_sigma True --dropout 0.3"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 128"
+```
+
+Class-conditional ImageNet-64 model (270M parameters, trained for 250K iterations):
+
+```bash
+MODEL_FLAGS="--image_size 64 --num_channels 192 --num_res_blocks 3 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine --rescale_learned_sigmas False --rescale_timesteps False"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 2048"
+```
+
+Upsampling 256x256 model (280M parameters, trained for 500K iterations):
+
+```bash
+MODEL_FLAGS="--num_channels 192 --num_res_blocks 3 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False"
+TRAIN_FLAGS="--lr 3e-4 --batch_size 256"
+```
+
+LSUN bedroom model (lr=1e-4):
+
+```bash
+MODEL_FLAGS="--image_size 256 --num_channels 128 --num_res_blocks 2 --num_heads 1 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 128"
+```
+
+LSUN bedroom model (lr=2e-5):
+
+```bash
+MODEL_FLAGS="--image_size 256 --num_channels 128 --num_res_blocks 2 --num_heads 1 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False"
+TRAIN_FLAGS="--lr 2e-5 --batch_size 128"
+```
