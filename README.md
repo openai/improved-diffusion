@@ -128,3 +128,19 @@ MODEL_FLAGS="--image_size 256 --num_channels 128 --num_res_blocks 2 --num_heads 
 DIFFUSION_FLAGS="--diffusion_steps 1000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False --use_scale_shift_norm False"
 TRAIN_FLAGS="--lr 2e-5 --batch_size 128"
 ```
+
+Unconditional ImageNet-64 with the `L_vlb` objective and cosine noise schedule [[checkpoint](https://openaipublic.blob.core.windows.net/diffusion/march-2021/imagenet64_uncond_vlb_100M_1500K.pt)]:
+
+```bash
+MODEL_FLAGS="--image_size 64 --num_channels 128 --num_res_blocks 3 --learn_sigma True"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 128 --schedule_sampler loss-second-moment"
+```
+
+Unconditional CIFAR-10 with the `L_vlb` objective and cosine noise schedule [[checkpoint](https://openaipublic.blob.core.windows.net/diffusion/march-2021/cifar10_uncond_vlb_50M_500K.pt)]:
+
+```bash
+MODEL_FLAGS="--image_size 32 --num_channels 128 --num_res_blocks 3 --learn_sigma True --dropout 0.3"
+DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine"
+TRAIN_FLAGS="--lr 1e-4 --batch_size 128 --schedule_sampler loss-second-moment"
+```
