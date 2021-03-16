@@ -98,7 +98,7 @@ TRAIN_FLAGS="--lr 1e-4 --batch_size 128"
 Class-conditional ImageNet-64 model (270M parameters, trained for 250K iterations):
 
 ```bash
-MODEL_FLAGS="--image_size 64 --num_channels 192 --num_res_blocks 3 --learn_sigma True"
+MODEL_FLAGS="--image_size 64 --num_channels 192 --num_res_blocks 3 --learn_sigma True --class_cond True"
 DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine --rescale_learned_sigmas False --rescale_timesteps False"
 TRAIN_FLAGS="--lr 3e-4 --batch_size 2048"
 ```
@@ -106,7 +106,7 @@ TRAIN_FLAGS="--lr 3e-4 --batch_size 2048"
 Upsampling 256x256 model (280M parameters, trained for 500K iterations):
 
 ```bash
-MODEL_FLAGS="--num_channels 192 --num_res_blocks 3 --learn_sigma True"
+MODEL_FLAGS="--num_channels 192 --num_res_blocks 3 --learn_sigma True --class_cond True"
 DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule linear --rescale_learned_sigmas False --rescale_timesteps False"
 TRAIN_FLAGS="--lr 3e-4 --batch_size 256"
 ```
