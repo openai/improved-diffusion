@@ -38,7 +38,7 @@ Here are some changes we experiment with, and how to set them in the flags:
 
  * **Learned sigmas:** add `--learn_sigma True` to `MODEL_FLAGS`
  * **Cosine schedule:** change `--noise_schedule linear` to `--noise_schedule cosine`
- * **Reweighted VLB:** add `--use_kl True` to `DIFFUSION_FLAGS` and add `--schedule_sampler loss-second-moment` to  `TRAIN_FLAGS`.
+ * **Importance-sampled VLB:** add `--use_kl True` to `DIFFUSION_FLAGS` and add `--schedule_sampler loss-second-moment` to  `TRAIN_FLAGS`.
  * **Class-conditional:** add `--class_cond True` to `MODEL_FLAGS`.
 
 Once you have setup your hyper-parameters, you can run an experiment like so:
