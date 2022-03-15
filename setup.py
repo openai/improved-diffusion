@@ -1,6 +1,3 @@
-""" @xvdp fixed setup for simple import as:
->>> import improved_diffusion
-"""
 from setuptools import setup, find_packages
 
 setup(
