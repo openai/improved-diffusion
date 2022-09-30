@@ -1,3 +1,10 @@
 .DS_Store
 __pycache__/
-
+*.ipynb
+*.npz
+*.ini
+/cifar*/
+/logs*/
+/checkpoints/
+/improved_diffusion.egg-info/
+/.idea/
