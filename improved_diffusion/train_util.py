@@ -2,6 +2,7 @@ import copy
 import functools
 import os
 
+
 import blobfile as bf
 import numpy as np
 import torch as th
@@ -45,6 +46,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        clip_value=1
     ):
         self.model = model
         self.diffusion = diffusion
@@ -65,6 +67,7 @@ class TrainLoop:
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
+        self.clip_value = clip_value
 
         self.step = 0
         self.resume_step = 0
@@ -165,6 +168,12 @@ class TrainLoop:
         ):
             batch, cond = next(self.data)
             self.run_step(batch, cond)
+
+            # Weight clipping
+            for name, param in self.model.named_parameters():
+                if 'weight' in name:
+                  param.data.clamp_(-self.clip_value, self.clip_value)
+
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
             if self.step % self.save_interval == 0:
@@ -217,7 +226,7 @@ class TrainLoop:
 
             loss = (losses["loss"] * weights).mean()
             log_loss_dict(
-                self.diffusion, t, {k: v * weights for k, v in losses.items()}
+                self.diffusion, t, {k: v * weights for k, v in losses.items()}, self.step + self.resume_step
             )
             if self.use_fp16:
                 loss_scale = 2 ** self.lg_loss_scale
@@ -253,6 +262,7 @@ class TrainLoop:
         for p in self.master_params:
             sqsum += (p.grad ** 2).sum().item()
         logger.logkv_mean("grad_norm", np.sqrt(sqsum))
+        logger.comet_logger.log_metric("grad_norm", np.sqrt(sqsum), self.step + self.resume_step)
 
     def _anneal_lr(self):
         if not self.lr_anneal_steps:
@@ -347,10 +357,12 @@ def find_ema_checkpoint(main_checkpoint, step, rate):
     return None
 
 
-def log_loss_dict(diffusion, ts, losses):
+def log_loss_dict(diffusion, ts, losses, step):
     for key, values in losses.items():
         logger.logkv_mean(key, values.mean().item())
+        logger.comet_logger.log_metric(key, values.mean().item(), step)
         # Log the quantiles (four quartiles, in particular).
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
             logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
+            logger.comet_logger.log_metric(f"{key}_q{quartile}", sub_loss, step)

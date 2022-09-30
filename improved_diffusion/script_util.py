@@ -252,7 +252,7 @@ def create_gaussian_diffusion(
         use_timesteps=space_timesteps(steps, timestep_respacing),
         betas=betas,
         model_mean_type=(
-            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.START_X
+            gd.ModelMeanType.EPSILON if not predict_xstart else gd.ModelMeanType.PREVIOUS_X
         ),
         model_var_type=(
             (

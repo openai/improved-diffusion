@@ -14,6 +14,7 @@ import tempfile
 import warnings
 from collections import defaultdict
 from contextlib import contextmanager
+from comet_ml import Experiment
 
 DEBUG = 10
 INFO = 20
@@ -22,6 +23,15 @@ ERROR = 40
 
 DISABLED = 50
 
+
+comet_logger = Experiment(
+    api_key="bDdPpwVJwBzrKJobI8vKc87qx",
+    project_name="norm-diffusion",
+    workspace="tungntict",
+    auto_histogram_weight_logging=True,
+    auto_histogram_gradient_logging=True,
+    auto_histogram_activation_logging=True
+)
 
 class KVWriter(object):
     def writekvs(self, kvs):
@@ -443,11 +453,12 @@ def configure(dir=None, format_strs=None, comm=None, log_suffix=""):
     """
     If comm is provided, average all numerical stats across that comm
     """
+    logs_dir = '/content/drive/MyDrive/diffusion-norm/logs'
     if dir is None:
         dir = os.getenv("OPENAI_LOGDIR")
     if dir is None:
         dir = osp.join(
-            tempfile.gettempdir(),
+            logs_dir,
             datetime.datetime.now().strftime("openai-%Y-%m-%d-%H-%M-%S-%f"),
         )
     assert isinstance(dir, str)

@@ -19,6 +19,8 @@ from .nn import (
     checkpoint,
 )
 
+from .norm_layer import ReGroupNorm
+
 
 class TimestepBlock(nn.Module):
     """
@@ -436,6 +438,8 @@ class UNetModel(nn.Module):
             zero_module(conv_nd(dims, model_channels, out_channels, 3, padding=1)),
         )
 
+        self.norm = ReGroupNorm(out_channels)
+
     def convert_to_fp16(self):
         """
         Convert the torso of the model to float16.
@@ -469,7 +473,7 @@ class UNetModel(nn.Module):
         :return: an [N x C x ...] Tensor of outputs.
         """
         assert (y is not None) == (
-            self.num_classes is not None
+                self.num_classes is not None
         ), "must specify y if and only if the model is class-conditional"
 
         hs = []
@@ -480,6 +484,9 @@ class UNetModel(nn.Module):
             emb = emb + self.label_emb(y)
 
         h = x.type(self.inner_dtype)
+
+        h = self.norm(h, timesteps)
+
         for module in self.input_blocks:
             h = module(h, emb)
             hs.append(h)
@@ -544,4 +551,3 @@ class SuperResModel(UNetModel):
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
         x = th.cat([x, upsampled], dim=1)
         return super().get_feature_vectors(x, timesteps, **kwargs)
-
