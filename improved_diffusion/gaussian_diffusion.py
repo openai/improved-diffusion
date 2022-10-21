@@ -13,7 +13,10 @@ import torch as th
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
+# from .norm_layer import ReGroupNorm
 
+def sigmoid(x):
+  return 1 / (1 + np.exp(-x))
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -37,6 +40,11 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
         return betas_for_alpha_bar(
             num_diffusion_timesteps,
             lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
+        )
+    elif schedule_name == "sigmoid":
+        return betas_for_alpha_bar(
+            num_diffusion_timesteps,
+            lambda t: sigmoid(10*(0.5 - t)),
         )
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
@@ -330,8 +338,8 @@ class GaussianDiffusion:
         return (
             _extract_into_tensor(self.sqrt_recip_alphas_cumprod, t, x_t.shape) * x_t
             - _extract_into_tensor(self.sqrt_recipm1_alphas_cumprod, t, x_t.shape) * eps
-        )
-
+          )
+       
     def _predict_xstart_from_xprev(self, x_t, t, xprev):
         assert x_t.shape == xprev.shape
         return (  # (xprev - coef2*x_t) / coef1
