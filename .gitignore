@@ -9,3 +9,4 @@ __pycache__/
 /improved_diffusion.egg-info/
 /.idea/
 /diffusion-norm-50-steps-checkpoints-cifar10/
+*.pt
