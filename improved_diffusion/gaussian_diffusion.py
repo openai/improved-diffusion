@@ -265,8 +265,8 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
+        # a = th.tensor([49] * B, device='cuda:0')
         model_output = model(x, self._scale_timesteps(t), **model_kwargs)
-
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
             model_output, model_var_values = th.split(model_output, C, dim=1)

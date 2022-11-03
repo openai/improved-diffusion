@@ -80,6 +80,7 @@ def create_model_and_diffusion(
         rescale_learned_sigmas=rescale_learned_sigmas,
         timestep_respacing=timestep_respacing,
     )
+    print("FFF")
     return model, diffusion
 
 

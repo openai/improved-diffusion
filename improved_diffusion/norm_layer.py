@@ -4,8 +4,8 @@ import torch.nn.functional as F
 from functools import partial
 from torch.nn.parameter import Parameter
 
-NON_NORM_FROM_STEP=51
-
+NON_NORM_FROM_STEP=0
+print("NORM::", NON_NORM_FROM_STEP)
 class BatchNorm(nn.BatchNorm2d):
     def __init__(self, num_features, eps=1e-5, momentum=0.1,
                  affine=True, track_running_stats=True):
@@ -159,10 +159,9 @@ class ReGroupNorm(nn.Module):
         #     self.register_parameter('bias', None)
 
     def forward(self, x, t):
-        norm_mask = t < NON_NORM_FROM_STEP
+        norm_mask = t >= NON_NORM_FROM_STEP
         if not any(norm_mask):
-          return x
-        
+            return x
         input = x[norm_mask]
 
         b = input.size(0)

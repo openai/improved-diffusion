@@ -364,5 +364,5 @@ def log_loss_dict(diffusion, ts, losses, step):
         # Log the quantiles (four quartiles, in particular).
         for sub_t, sub_loss in zip(ts.cpu().numpy(), values.detach().cpu().numpy()):
             quartile = int(4 * sub_t / diffusion.num_timesteps)
-            logger.logkv_mean(f"{key}_q{quartile}", sub_loss)
-            logger.comet_logger.log_metric(f"{key}_q{quartile}", sub_loss, step)
+            logger.logkv_mean(f"{key}_q{sub_t}", sub_loss)
+            logger.comet_logger.log_metric(f"{key}_q{sub_t}", sub_loss, step)
