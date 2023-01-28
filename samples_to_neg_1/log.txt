@@ -1,0 +1,6 @@
+Logging to /tmp/openai-2023-01-28-13-28-13-426618
+creating model and diffusion...
+sampling...
+created 16 samples
+saving to /tmp/openai-2023-01-28-13-28-13-426618/samples_4x32x32x3.npz
+sampling complete
