@@ -1,3 +1,8 @@
 .DS_Store
 __pycache__/
-
+log/
+sample_log/
+cifar_train/
+cifar_test/
+improved_diffusion.egg-info/
+images/
