@@ -230,7 +230,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+        self, model, x, t, clip_denoised=True, denoised_fn=None, residual_connection_net = None, residual_x_start = None, model_kwargs=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -309,6 +309,14 @@ class GaussianDiffusion:
                 pred_xstart = process_xstart(
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
+
+            if residual_x_start is not None:
+                if residual_connection_net is not None:
+                    residual_val = residual_connection_net(residual_x_start)
+                    pred_xstart = (1. - residual_val) * pred_xstart + residual_val * residual_x_start
+                else:
+                    raise TypeError(residual_connection_net)
+
             model_mean, _, _ = self.q_posterior_mean_variance(
                 x_start=pred_xstart, x_t=x, t=t
             )
