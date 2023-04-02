@@ -31,6 +31,7 @@ class TrainLoop:
         self,
         *,
         model,
+        residual_connection_net,
         diffusion,
         data,
         batch_size,
@@ -47,6 +48,7 @@ class TrainLoop:
         lr_anneal_steps=0,
     ):
         self.model = model
+        self.residual_connection_net = residual_connection_net
         self.diffusion = diffusion
         self.data = data
         self.batch_size = batch_size
@@ -71,7 +73,8 @@ class TrainLoop:
         self.global_batch = self.batch_size * dist.get_world_size()
 
         self.model_params = list(self.model.parameters())
-        self.master_params = self.model_params
+        self.residual_connection_net_params = list(self.residual_connection_net.parameters())
+        self.master_params = self.model_params + self.residual_connection_net_params
         self.lg_loss_scale = INITIAL_LOG_LOSS_SCALE
         self.sync_cuda = th.cuda.is_available()
 
@@ -123,8 +126,17 @@ class TrainLoop:
                         resume_checkpoint, map_location=dist_util.dev()
                     )
                 )
+                if self.residual_connection_net is not None:
+                    logger.log(f"loading residual net form checkpoint: {resume_checkpoint.replace('model', 'residual')}")
+                    self.residual_connection_net.load_state_dict(
+                        dist_util.load_state_dict(
+                            resume_checkpoint.replace('model', 'residual'), map_location=dist_util.dev()
+                        )
+                    )
 
         dist_util.sync_params(self.model.parameters())
+        if self.residual_connection_net is not None:
+            dist_util.sync_params(self.residual_connection_net.parameters())
 
     def _load_ema_parameters(self, rate):
         ema_params = copy.deepcopy(self.master_params)
@@ -138,8 +150,15 @@ class TrainLoop:
                     ema_checkpoint, map_location=dist_util.dev()
                 )
                 ema_params = self._state_dict_to_master_params(state_dict)
+                if self.residual_connection_net is not None:
+                    logger.log(f"loading EMA residual net from checkpoint: residual_{ema_checkpoint}...")
+                    state_dict = dist_util.load_state_dict(
+                        "residual_"+ema_checkpoint, map_location=dist_util.dev()
+                    )
 
         dist_util.sync_params(ema_params)
+        if self.residual_connection_net is not None:
+            dist_util.sync_params()
         return ema_params
 
     def _load_optimizer_state(self):
