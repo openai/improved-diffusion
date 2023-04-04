@@ -1,11 +1,32 @@
 import argparse
 import inspect
+from torch import nn
+
+from torch.nn import Sequential
 
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
 from .unet import SuperResModel, UNetModel
 
 NUM_CLASSES = 1000
+
+
+def residual_connection_net_defaults():
+    """
+    Defaults residual connection net setting.
+    """
+    return dict(
+
+    )
+
+
+def create_residual_connection_net(
+
+    ):
+    return Sequential(
+        nn.Linear(10, 1)
+    )
+
 
 
 def model_and_diffusion_defaults():
