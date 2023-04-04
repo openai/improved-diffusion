@@ -9,6 +9,8 @@ from improved_diffusion.image_datasets import load_data
 from improved_diffusion.resample import create_named_schedule_sampler
 from improved_diffusion.script_util import (
     model_and_diffusion_defaults,
+    residual_connection_net_defaults,
+    create_residual_connection_net,
     create_model_and_diffusion,
     args_to_dict,
     add_dict_to_argparser,
@@ -26,6 +28,13 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    # feat.residual_connection
+    residual_connection_net = create_residual_connection_net(
+        **args_to_dict(args, residual_connection_net_defaults().keys())
+    )
+    if residual_connection_net is not None:
+        residual_connection_net.to(dist_util.dev())
+    #####
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
 
@@ -40,6 +49,7 @@ def main():
     logger.log("training...")
     TrainLoop(
         model=model,
+        residual_connection_net=residual_connection_net,
         diffusion=diffusion,
         data=data,
         batch_size=args.batch_size,
@@ -74,6 +84,7 @@ def create_argparser():
         fp16_scale_growth=1e-3,
     )
     defaults.update(model_and_diffusion_defaults())
+    defaults.update(residual_connection_net_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
