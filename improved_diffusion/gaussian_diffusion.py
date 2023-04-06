@@ -316,7 +316,10 @@ class GaussianDiffusion:
 
             if residual_x_start is not None:
                 if residual_connection_net is not None:
-                    residual_val = residual_connection_net(residual_x_start)
+                    residual_val = residual_connection_net(residual_x_start, t).squeeze()
+                    while len(residual_val.shape) < len(pred_xstart.shape):
+                        residual_val = residual_val[..., None]
+                    residual_val = residual_val.expand(pred_xstart.shape)
                     pred_xstart = (1. - residual_val) * pred_xstart + residual_val * residual_x_start
                 else:
                     raise TypeError(residual_connection_net)
@@ -722,9 +725,10 @@ class GaussianDiffusion:
             mean_variance = self.p_mean_variance(
                 model, residual_model, x=x_t, t=t, clip_denoised=False, residual_x_start=None, **model_kwargs
             )
-            mean_prediction, log_variance_prediction = (
+            mean_prediction, log_variance_prediction, pred_xstart = (
                 mean_variance["mean"],
                 mean_variance["log_variance"],
+                mean_variance["pred_xstart"]
             )
 
             true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
@@ -732,37 +736,44 @@ class GaussianDiffusion:
             )
             #model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
-            if self.model_var_type in [
-                ModelVarType.LEARNED,
-                ModelVarType.LEARNED_RANGE,
-            ]:
-                B, C = x_t.shape[:2]
-                # Learn the variance using the variational bound, but don't let
-                # it affect our mean prediction.
-                kl = normal_kl(
-                    true_mean,
-                    true_log_variance_clipped,
-                    mean_prediction.detach(),
-                    log_variance_prediction,
-                )
-                kl = mean_flat(kl) / np.log(2.0)
+            ##########################################################
+            ##Disable learned variance for the ease of understanding##
+            ##########################################################
 
-                decoder_nll = -discretized_gaussian_log_likelihood(
-                    x_start, means=out["mean"], log_scales=0.5 * log_variance_prediction
-                )
-
-                assert decoder_nll.shape == x_start.shape
-                decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
-
-                # At the first timestep return the decoder NLL,
-                # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
-                output = th.where((t==0), decoder_nll, kl)
-                terms["vb"] = output
-
-                if self.loss_type == LossType.RESCALED_MSE:
-                    # Divide by 1000 for equivalence with initial implementation.
-                    # Without a factor of 1/1000, the VB term hurts the MSE term.
-                    terms["vb"] *= self.num_timesteps / 1000.0
+            # if self.model_var_type in [
+            #     ModelVarType.LEARNED,
+            #     ModelVarType.LEARNED_RANGE,
+            # ]:
+            #     B, C = x_t.shape[:2]
+            #     # Learn the variance using the variational bound, but don't let
+            #     # it affect our mean prediction.
+            #     kl = normal_kl(
+            #         true_mean,
+            #         true_log_variance_clipped,
+            #         mean_prediction.detach(),
+            #         log_variance_prediction,
+            #     )
+            #     kl = mean_flat(kl) / np.log(2.0)
+            #
+            #     decoder_nll = -discretized_gaussian_log_likelihood(
+            #         x_start, means=out["mean"], log_scales=0.5 * log_variance_prediction
+            #     )
+            #
+            #     assert decoder_nll.shape == x_start.shape
+            #     decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+            #
+            #     # At the first timestep return the decoder NLL,
+            #     # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+            #     output = th.where((t==0), decoder_nll, kl)
+            #     terms["vb"] = output
+            #
+            #     if self.loss_type == LossType.RESCALED_MSE:
+            #         # Divide by 1000 for equivalence with initial implementation.
+            #         # Without a factor of 1/1000, the VB term hurts the MSE term.
+            #         terms["vb"] *= self.num_timesteps / 1000.0
+            #################################
+            ##End of learning variance code##
+            #################################
 
             # Always calculate losses base on mean prediction
             assert mean_prediction.shape == true_mean.shape == x_start.shape
@@ -780,10 +791,55 @@ class GaussianDiffusion:
 
             terms["mse"] = mse
 
-            if "vb" in terms:
-                terms["loss"] = terms["mse"] + terms["vb"]
+            # if "vb" in terms:
+            #     terms["loss"] = terms["mse"] + terms["vb"]
+            # else:
+            #     terms["loss"] = terms["mse"]
+
+            ##################################################
+            ## Second loop to train residual connection net ##
+            ##################################################
+
+            x_t_1 = self.q_sample(x_start, t, noise=None)
+            nonzero_mask = (
+                 (t != 0).float()
+            )  # no noise when t == 0
+            t_1 = th.clamp(t-1.0, min=0).type(th.int)
+            mean_variance_1 = self.p_mean_variance(
+                model, 
+                residual_model,
+                x_t_1,
+                t_1,
+                clip_denoised=False,
+                residual_x_start=pred_xstart,
+                **model_kwargs
+            )
+            mean_prediction_1, log_variance_prediction_1, pred_xstart = (
+                mean_variance_1["mean"],
+                mean_variance_1["log_variance"],
+                mean_variance_1["pred_xstart"]
+            )
+
+            true_mean_1, _, true_log_variance_clipped_1 = self.q_posterior_mean_variance(
+                x_start=x_start, x_t=x_t_1, t=t_1
+            )
+
+            assert mean_prediction_1.shape == true_mean_1.shape == x_start.shape
+
+            if self.model_mean_type == ModelMeanType.EPSILON:
+                mse_1 = mean_flat(
+                    (
+                        _extract_into_tensor(self.recip_noise_coef, t_1, true_mean_1.shape)
+                        * (true_mean_1 - mean_prediction_1)
+                    )
+                    ** 2
+                )
             else:
-                terms["loss"] = terms["mse"]
+                mse_1 = mean_flat((true_mean_1 - mean_prediction_1) ** 2)
+
+            terms["mse"] += mse_1 * nonzero_mask
+            terms["loss"] = terms["mse"]
+
         else:
             raise NotImplementedError(self.loss_type)
 

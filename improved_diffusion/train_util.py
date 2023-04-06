@@ -116,7 +116,7 @@ class TrainLoop:
                 copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
             ]
             self.residual_ema_params = [
-                copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
+                copy.deepcopy(self.residual_master_params) for _ in range(len(self.ema_rate))
             ]
 
         if th.cuda.is_available():
@@ -321,7 +321,7 @@ class TrainLoop:
             update_ema(params, self.master_params, rate=rate)
         if self.residual_connection_net is not None:
             for rate, params in zip(self.ema_rate, self.residual_ema_params):
-                update_ema(params, self.residual_ema_params, rate=rate)
+                update_ema(params, self.residual_master_params, rate=rate)
 
     def _log_grad_norm(self):
         sqsum = 0.0
@@ -345,17 +345,20 @@ class TrainLoop:
 
     def save(self):
         def save_checkpoint(rate, params, model_type=""):
-            state_dict = self._master_params_to_state_dict(params)
+            state_dict = self._master_params_to_state_dict(params, model_type=model_type)
             if dist.get_rank() == 0:
                 logger.log(f"saving model {rate}...")
                 if not rate:
-                    filename = f"model{model_type}{(self.step+self.resume_step):06d}.pt"
+                    if model_type == "":
+                        filename = f"model{(self.step+self.resume_step):06d}.pt"
+                    elif model_type == "residual":
+                        filename = f"residual{(self.step+self.resume_step):06d}.pt"
                 else:
                     if model_type != "":
-                        _model_type = "_" + model_type
+                        _model_type = model_type + "_"
                     else:
                         _model_type = model_type
-                    filename = f"ema_{rate}{_model_type}_{(self.step+self.resume_step):06d}.pt"
+                    filename = f"{_model_type}ema_{rate}_{(self.step+self.resume_step):06d}.pt"
                 with bf.BlobFile(bf.join(get_blob_logdir(), filename), "wb") as f:
                     th.save(state_dict, f)
 
@@ -376,18 +379,24 @@ class TrainLoop:
 
         dist.barrier()
 
-    def _master_params_to_state_dict(self, master_params):
+    def _master_params_to_state_dict(self, master_params, model_type=""):
         if self.use_fp16:
             master_params = unflatten_master_params(
                 self.model.parameters(), master_params
             )
-        state_dict = self.model.state_dict()
-        for i, (name, _value) in enumerate(self.model.named_parameters()):
-            assert name in state_dict
-            state_dict[name] = master_params[i]
+        if model_type=="residual":
+            state_dict = self.residual_connection_net.state_dict()
+            for i, (name, _value) in enumerate(self.residual_connection_net.named_parameters()):
+                assert name in state_dict
+                state_dict[name] = master_params[i]
+        else:
+            state_dict = self.model.state_dict()
+            for i, (name, _value) in enumerate(self.model.named_parameters()):
+                assert name in state_dict
+                state_dict[name] = master_params[i]
         return state_dict
 
-    def _state_dict_to_master_params(self, state_dict):
+    def _state_dict_to_master_params(self, state_dict, model_type=""):
         params = [state_dict[name] for name, _ in self.model.named_parameters()]
         if self.use_fp16:
             return make_master_params(params)
@@ -421,7 +430,7 @@ def find_resume_checkpoint():
 
 
 def find_residual_checkpoint(resume_checkpoint, step):
-    filename = f"residual{step}.pt"
+    filename = f"residual{(step):06d}.pt"
     path = bf.join(bf.dirname(resume_checkpoint), filename)
     if bf.exists(path):
         return path

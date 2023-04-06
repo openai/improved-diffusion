@@ -523,6 +523,48 @@ class UNetModel(nn.Module):
         return result
 
 
+class ResidualNet(nn.Module):
+    def __init__(
+        self,
+        image_size,
+        time_embed_dim
+        ):
+        super().__init__()
+        self.image_size = image_size
+        self.time_embed = nn.Sequential(
+            nn.Linear(128, time_embed_dim),
+            nn.SiLU(),
+            nn.Linear(time_embed_dim, time_embed_dim),
+            nn.SiLU()
+        )
+        if image_size == 32:
+            self.model = nn.Sequential(
+                nn.Linear(32*32*3 + time_embed_dim, 1024),
+                nn.SiLU(),
+                nn.Linear(1024, 512),
+                nn.SiLU(),
+                nn.Linear(512, 128),
+                nn.SiLU(),
+                nn.Linear(128, 32),
+                nn.SiLU(),
+                nn.Linear(32, 8),
+                nn.SiLU(),
+                nn.Linear(8, 1),
+                nn.Sigmoid()
+            )
+
+    def forward(
+        self,
+        x,
+        timesteps,
+        y=None
+        ):
+        h = th.flatten(x, start_dim=1)
+        emb = self.time_embed(timestep_embedding(timesteps, 128))
+        inputs = th.concat([h, emb], 1).type(th.float)
+        return self.model(inputs)
+
+
 class SuperResModel(UNetModel):
     """
     A UNetModel that performs super-resolution.

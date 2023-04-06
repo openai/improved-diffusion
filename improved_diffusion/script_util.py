@@ -6,7 +6,7 @@ from torch.nn import Sequential
 
 from . import gaussian_diffusion as gd
 from .respace import SpacedDiffusion, space_timesteps
-from .unet import SuperResModel, UNetModel
+from .unet import SuperResModel, UNetModel, ResidualNet
 
 NUM_CLASSES = 1000
 
@@ -16,17 +16,19 @@ def residual_connection_net_defaults():
     Defaults residual connection net setting.
     """
     return dict(
-
+        image_size=32,
+        time_embed_dim=128
     )
 
 
 def create_residual_connection_net(
-
+    image_size: int = 32,
+    time_embed_dim: int = 128
     ):
-    return Sequential(
-        nn.Linear(10, 1)
+    return ResidualNet(
+        image_size,
+        time_embed_dim
     )
-
 
 
 def model_and_diffusion_defaults():
