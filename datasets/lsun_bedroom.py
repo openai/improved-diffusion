@@ -6,9 +6,9 @@ import argparse
 import io
 import os
 
-from PIL import Image
 import lmdb
 import numpy as np
+from PIL import Image
 
 
 def read_images(lmdb_path, image_size):
