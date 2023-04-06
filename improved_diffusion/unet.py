@@ -1,6 +1,5 @@
-from abc import abstractmethod
-
 import math
+from abc import abstractmethod
 
 import numpy as np
 import torch as th
@@ -10,13 +9,13 @@ import torch.nn.functional as F
 from .fp16_util import convert_module_to_f16, convert_module_to_f32
 from .nn import (
     SiLU,
+    avg_pool_nd,
+    checkpoint,
     conv_nd,
     linear,
-    avg_pool_nd,
-    zero_module,
     normalization,
     timestep_embedding,
-    checkpoint,
+    zero_module,
 )
 
 
@@ -271,7 +270,7 @@ class QKVAttention(nn.Module):
         # We perform two matmuls with the same number of ops.
         # The first computes the weight matrix, the second computes
         # the combination of the value vectors.
-        matmul_ops = 2 * b * (num_spatial ** 2) * c
+        matmul_ops = 2 * b * (num_spatial**2) * c
         model.total_ops += th.DoubleTensor([matmul_ops])
 
 
@@ -524,22 +523,18 @@ class UNetModel(nn.Module):
 
 
 class ResidualNet(nn.Module):
-    def __init__(
-        self,
-        image_size,
-        time_embed_dim
-        ):
+    def __init__(self, image_size, time_embed_dim):
         super().__init__()
         self.image_size = image_size
         self.time_embed = nn.Sequential(
             nn.Linear(128, time_embed_dim),
             nn.SiLU(),
             nn.Linear(time_embed_dim, time_embed_dim),
-            nn.SiLU()
+            nn.SiLU(),
         )
         if image_size == 32:
             self.model = nn.Sequential(
-                nn.Linear(32*32*3 + time_embed_dim, 1024),
+                nn.Linear(32 * 32 * 3 + time_embed_dim, 1024),
                 nn.SiLU(),
                 nn.Linear(1024, 512),
                 nn.SiLU(),
@@ -550,15 +545,10 @@ class ResidualNet(nn.Module):
                 nn.Linear(32, 8),
                 nn.SiLU(),
                 nn.Linear(8, 1),
-                nn.Sigmoid()
+                nn.Sigmoid(),
             )
 
-    def forward(
-        self,
-        x,
-        timesteps,
-        y=None
-        ):
+    def forward(self, x, timesteps, y=None):
         h = th.flatten(x, start_dim=1)
         emb = self.time_embed(timestep_embedding(timesteps, 128))
         inputs = th.concat([h, emb], 1).type(th.float)
@@ -586,4 +576,3 @@ class SuperResModel(UNetModel):
         upsampled = F.interpolate(low_res, (new_height, new_width), mode="bilinear")
         x = th.cat([x, upsampled], dim=1)
         return super().get_feature_vectors(x, timesteps, **kwargs)
-

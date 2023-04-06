@@ -11,10 +11,10 @@ import torch.distributed as dist
 from improved_diffusion import dist_util, logger
 from improved_diffusion.image_datasets import load_data
 from improved_diffusion.script_util import (
-    model_and_diffusion_defaults,
-    create_model_and_diffusion,
     add_dict_to_argparser,
     args_to_dict,
+    create_model_and_diffusion,
+    model_and_diffusion_defaults,
 )
 
 

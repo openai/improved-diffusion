@@ -11,8 +11,8 @@ import math
 import numpy as np
 import torch as th
 
+from .losses import discretized_gaussian_log_likelihood, normal_kl
 from .nn import mean_flat
-from .losses import normal_kl, discretized_gaussian_log_likelihood
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
@@ -234,7 +234,15 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, residual_connection_net, x, t, clip_denoised=True, denoised_fn=None, residual_x_start = None, model_kwargs=None
+        self,
+        model,
+        residual_connection_net,
+        x,
+        t,
+        clip_denoised=True,
+        denoised_fn=None,
+        residual_x_start=None,
+        model_kwargs=None,
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -316,11 +324,15 @@ class GaussianDiffusion:
 
             if residual_x_start is not None:
                 if residual_connection_net is not None:
-                    residual_val = residual_connection_net(residual_x_start, t).squeeze()
+                    residual_val = residual_connection_net(
+                        residual_x_start, t
+                    ).squeeze()
                     while len(residual_val.shape) < len(pred_xstart.shape):
                         residual_val = residual_val[..., None]
                     residual_val = residual_val.expand(pred_xstart.shape)
-                    pred_xstart = (1. - residual_val) * pred_xstart + residual_val * residual_x_start
+                    pred_xstart = (
+                        1.0 - residual_val
+                    ) * pred_xstart + residual_val * residual_x_start
                 else:
                     raise TypeError(residual_connection_net)
 
@@ -528,7 +540,7 @@ class GaussianDiffusion:
         noise = th.randn_like(x)
         mean_pred = (
             out["pred_xstart"] * th.sqrt(alpha_bar_prev)
-            + th.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
+            + th.sqrt(1 - alpha_bar_prev - sigma**2) * eps
         )
         nonzero_mask = (
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
@@ -689,7 +701,9 @@ class GaussianDiffusion:
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
-    def training_losses(self, model, residual_model, x_start, t, model_kwargs=None, noise=None):
+    def training_losses(
+        self, model, residual_model, x_start, t, model_kwargs=None, noise=None
+    ):
         """
         Compute training losses for a single timestep.
 
@@ -723,18 +737,24 @@ class GaussianDiffusion:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
             mean_variance = self.p_mean_variance(
-                model, residual_model, x=x_t, t=t, clip_denoised=False, residual_x_start=None, **model_kwargs
+                model,
+                residual_model,
+                x=x_t,
+                t=t,
+                clip_denoised=False,
+                residual_x_start=None,
+                **model_kwargs,
             )
             mean_prediction, log_variance_prediction, pred_xstart = (
                 mean_variance["mean"],
                 mean_variance["log_variance"],
-                mean_variance["pred_xstart"]
+                mean_variance["pred_xstart"],
             )
 
             true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
                 x_start=x_start, x_t=x_t, t=t
             )
-            #model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            # model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
             ##########################################################
             ##Disable learned variance for the ease of understanding##
@@ -801,35 +821,37 @@ class GaussianDiffusion:
             ##################################################
 
             x_t_1 = self.q_sample(x_start, t, noise=None)
-            nonzero_mask = (
-                 (t != 0).float()
-            )  # no noise when t == 0
-            t_1 = th.clamp(t-1.0, min=0).type(th.int)
+            nonzero_mask = (t != 0).float()  # no noise when t == 0
+            t_1 = th.clamp(t - 1.0, min=0).type(th.int)
             mean_variance_1 = self.p_mean_variance(
-                model, 
+                model,
                 residual_model,
                 x_t_1,
                 t_1,
                 clip_denoised=False,
                 residual_x_start=pred_xstart,
-                **model_kwargs
+                **model_kwargs,
             )
             mean_prediction_1, log_variance_prediction_1, pred_xstart = (
                 mean_variance_1["mean"],
                 mean_variance_1["log_variance"],
-                mean_variance_1["pred_xstart"]
+                mean_variance_1["pred_xstart"],
             )
 
-            true_mean_1, _, true_log_variance_clipped_1 = self.q_posterior_mean_variance(
-                x_start=x_start, x_t=x_t_1, t=t_1
-            )
+            (
+                true_mean_1,
+                _,
+                true_log_variance_clipped_1,
+            ) = self.q_posterior_mean_variance(x_start=x_start, x_t=x_t_1, t=t_1)
 
             assert mean_prediction_1.shape == true_mean_1.shape == x_start.shape
 
             if self.model_mean_type == ModelMeanType.EPSILON:
                 mse_1 = mean_flat(
                     (
-                        _extract_into_tensor(self.recip_noise_coef, t_1, true_mean_1.shape)
+                        _extract_into_tensor(
+                            self.recip_noise_coef, t_1, true_mean_1.shape
+                        )
                         * (true_mean_1 - mean_prediction_1)
                     )
                     ** 2

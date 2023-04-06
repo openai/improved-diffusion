@@ -93,7 +93,9 @@ class SpacedDiffusion(GaussianDiffusion):
     def training_losses(
         self, model, residual_model, *args, **kwargs
     ):  # pylint: disable=signature-differs
-        return super().training_losses(self._wrap_model(model), self._wrap_model(residual_model), *args, **kwargs)
+        return super().training_losses(
+            self._wrap_model(model), self._wrap_model(residual_model), *args, **kwargs
+        )
 
     def _wrap_model(self, model):
         if isinstance(model, _WrappedModel):

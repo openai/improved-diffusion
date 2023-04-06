@@ -8,12 +8,12 @@ from improved_diffusion import dist_util, logger
 from improved_diffusion.image_datasets import load_data
 from improved_diffusion.resample import create_named_schedule_sampler
 from improved_diffusion.script_util import (
+    add_dict_to_argparser,
+    args_to_dict,
+    create_model_and_diffusion,
+    create_residual_connection_net,
     model_and_diffusion_defaults,
     residual_connection_net_defaults,
-    create_residual_connection_net,
-    create_model_and_diffusion,
-    args_to_dict,
-    add_dict_to_argparser,
 )
 from improved_diffusion.train_util import TrainLoop
 
