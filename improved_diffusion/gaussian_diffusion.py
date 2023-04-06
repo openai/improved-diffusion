@@ -168,6 +168,10 @@ class GaussianDiffusion:
             / (1.0 - self.alphas_cumprod)
         )
 
+        self.recip_noise_coef = (
+            self.sqrt_one_minus_alphas_cumprod * np.sqrt(alphas) / (self.betas)
+        )
+
     def q_mean_variance(self, x_start, t):
         """
         Get the distribution q(x_t | x_0).
@@ -230,7 +234,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, residual_connection_net = None, residual_x_start = None, model_kwargs=None
+        self, model, residual_connection_net, x, t, clip_denoised=True, denoised_fn=None, residual_x_start = None, model_kwargs=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -682,7 +686,7 @@ class GaussianDiffusion:
         output = th.where((t == 0), decoder_nll, kl)
         return {"output": output, "pred_xstart": out["pred_xstart"]}
 
-    def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+    def training_losses(self, model, residual_model, x_start, t, model_kwargs=None, noise=None):
         """
         Compute training losses for a single timestep.
 
@@ -715,39 +719,67 @@ class GaussianDiffusion:
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            mean_variance = self.p_mean_variance(
+                model, residual_model, x=x_t, t=t, clip_denoised=False, residual_x_start=None, **model_kwargs
+            )
+            mean_prediction, log_variance_prediction = (
+                mean_variance["mean"],
+                mean_variance["log_variance"],
+            )
+
+            true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
+                x_start=x_start, x_t=x_t, t=t
+            )
+            #model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
                 ModelVarType.LEARNED_RANGE,
             ]:
                 B, C = x_t.shape[:2]
-                assert model_output.shape == (B, C * 2, *x_t.shape[2:])
-                model_output, model_var_values = th.split(model_output, C, dim=1)
                 # Learn the variance using the variational bound, but don't let
                 # it affect our mean prediction.
-                frozen_out = th.cat([model_output.detach(), model_var_values], dim=1)
-                terms["vb"] = self._vb_terms_bpd(
-                    model=lambda *args, r=frozen_out: r,
-                    x_start=x_start,
-                    x_t=x_t,
-                    t=t,
-                    clip_denoised=False,
-                )["output"]
+                kl = normal_kl(
+                    true_mean,
+                    true_log_variance_clipped,
+                    mean_prediction.detach(),
+                    log_variance_prediction,
+                )
+                kl = mean_flat(kl) / np.log(2.0)
+
+                decoder_nll = -discretized_gaussian_log_likelihood(
+                    x_start, means=out["mean"], log_scales=0.5 * log_variance_prediction
+                )
+
+                assert decoder_nll.shape == x_start.shape
+                decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+
+                # At the first timestep return the decoder NLL,
+                # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
+                output = th.where((t==0), decoder_nll, kl)
+                terms["vb"] = output
+
                 if self.loss_type == LossType.RESCALED_MSE:
                     # Divide by 1000 for equivalence with initial implementation.
                     # Without a factor of 1/1000, the VB term hurts the MSE term.
                     terms["vb"] *= self.num_timesteps / 1000.0
 
-            target = {
-                ModelMeanType.PREVIOUS_X: self.q_posterior_mean_variance(
-                    x_start=x_start, x_t=x_t, t=t
-                )[0],
-                ModelMeanType.START_X: x_start,
-                ModelMeanType.EPSILON: noise,
-            }[self.model_mean_type]
-            assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = mean_flat((target - model_output) ** 2)
+            # Always calculate losses base on mean prediction
+            assert mean_prediction.shape == true_mean.shape == x_start.shape
+
+            if self.model_mean_type == ModelMeanType.EPSILON:
+                mse = mean_flat(
+                    (
+                        _extract_into_tensor(self.recip_noise_coef, t, true_mean.shape)
+                        * (true_mean - mean_prediction)
+                    )
+                    ** 2
+                )
+            else:
+                mse = mean_flat((true_mean - mean_prediction) ** 2)
+
+            terms["mse"] = mse
+
             if "vb" in terms:
                 terms["loss"] = terms["mse"] + terms["vb"]
             else:

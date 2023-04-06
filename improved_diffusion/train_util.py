@@ -73,16 +73,34 @@ class TrainLoop:
         self.global_batch = self.batch_size * dist.get_world_size()
 
         self.model_params = list(self.model.parameters())
-        self.residual_connection_net_params = list(self.residual_connection_net.parameters())
-        self.master_params = self.model_params + self.residual_connection_net_params
+        self.residual_params = list(self.residual_connection_net.parameters())
+        self.master_params = self.model_params
+        self.residual_master_params = self.residual_params
         self.lg_loss_scale = INITIAL_LOG_LOSS_SCALE
         self.sync_cuda = th.cuda.is_available()
 
         self._load_and_sync_parameters()
+
+        #############################################################
+        ## fp16 option is not available for residual_connection_net##
+        #############################################################
         if self.use_fp16:
             self._setup_fp16()
 
-        self.opt = AdamW(self.master_params, lr=self.lr, weight_decay=self.weight_decay)
+        if self.residual_connection_net is not None:
+            self.opt = AdamW(
+                [
+                    {"params": self.master_params},
+                    {"params": self.residual_master_params}
+                ],
+                lr=self.lr,
+                weight_decay=self.weight_decay
+            )
+        else:
+            self.opt = AdamW(
+                self.master_params, lr=self.lr, weight_decay=self.weight_decay
+            )
+        # self.opt = AdamW(self.master_params, lr=self.lr, weight_decay=self.weight_decay)
         if self.resume_step:
             self._load_optimizer_state()
             # Model was resumed, either due to a restart or a checkpoint
@@ -90,8 +108,14 @@ class TrainLoop:
             self.ema_params = [
                 self._load_ema_parameters(rate) for rate in self.ema_rate
             ]
+            self.residual_ema_params = [
+                self._load_ema_parameters(rate, "residual") for rate in self.ema_rate
+            ]
         else:
             self.ema_params = [
+                copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
+            ]
+            self.residual_ema_params = [
                 copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
             ]
 
@@ -105,6 +129,14 @@ class TrainLoop:
                 bucket_cap_mb=128,
                 find_unused_parameters=False,
             )
+            self.residual_ddp = DDP(
+                self.residual_connection_net,
+                device_ids=[dist_util.dev()],
+                output_device=dist_util.dev(),
+                broadcast_buffers=False,
+                bucket_cap_mb=128,
+                find_unused_parameters=False
+            )
         else:
             if dist.get_world_size() > 1:
                 logger.warn(
@@ -113,6 +145,7 @@ class TrainLoop:
                 )
             self.use_ddp = False
             self.ddp_model = self.model
+            self.residual_ddp = self.residual_connection_net
 
     def _load_and_sync_parameters(self):
         resume_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
@@ -127,10 +160,11 @@ class TrainLoop:
                     )
                 )
                 if self.residual_connection_net is not None:
-                    logger.log(f"loading residual net form checkpoint: {resume_checkpoint.replace('model', 'residual')}")
+                    residual_checkpoint = find_residual_checkpoint(self.resume_checkpoint, self.resume_step)
+                    logger.log(f"loading residual net form checkpoint: {residual_checkpoint}")
                     self.residual_connection_net.load_state_dict(
                         dist_util.load_state_dict(
-                            resume_checkpoint.replace('model', 'residual'), map_location=dist_util.dev()
+                            residual_checkpoint, map_location=dist_util.dev()
                         )
                     )
 
@@ -138,28 +172,38 @@ class TrainLoop:
         if self.residual_connection_net is not None:
             dist_util.sync_params(self.residual_connection_net.parameters())
 
-    def _load_ema_parameters(self, rate):
-        ema_params = copy.deepcopy(self.master_params)
+    def _load_ema_parameters(self, rate, model_type=""):
+        if model_type == "":
+            ema_params = copy.deepcopy(self.master_params)
 
-        main_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
-        ema_checkpoint = find_ema_checkpoint(main_checkpoint, self.resume_step, rate)
-        if ema_checkpoint:
-            if dist.get_rank() == 0:
-                logger.log(f"loading EMA from checkpoint: {ema_checkpoint}...")
-                state_dict = dist_util.load_state_dict(
-                    ema_checkpoint, map_location=dist_util.dev()
-                )
-                ema_params = self._state_dict_to_master_params(state_dict)
-                if self.residual_connection_net is not None:
-                    logger.log(f"loading EMA residual net from checkpoint: residual_{ema_checkpoint}...")
+            main_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
+            ema_checkpoint = find_ema_checkpoint(main_checkpoint, self.resume_step, rate)
+            if ema_checkpoint:
+                if dist.get_rank() == 0:
+                    logger.log(f"loading EMA from checkpoint: {ema_checkpoint}...")
                     state_dict = dist_util.load_state_dict(
-                        "residual_"+ema_checkpoint, map_location=dist_util.dev()
+                        ema_checkpoint, map_location=dist_util.dev()
                     )
+                    ema_params = self._state_dict_to_master_params(state_dict)
 
-        dist_util.sync_params(ema_params)
-        if self.residual_connection_net is not None:
-            dist_util.sync_params()
-        return ema_params
+            dist_util.sync_params(ema_params)
+            return ema_params
+        elif model_type == "residual":
+            ema_params = copy.deepcopy(self.residual_master_params)
+            
+            main_checkpoint = find_residual_checkpoint(self.resume_checkpoint, self.resume_step)
+            ema_checkpoint = find_ema_checkpoint(main_checkpoint, self.resume_step, rate, "residual")
+            if ema_checkpoint:
+                if dist.get_rank() == 0:
+                    logger.log(f"loading residual EMA from checkpoint: {ema_checkpoint}...")
+                    state_dict = dist_util.load_state_dict(
+                        ema_checkpoint, map_location=dist_util.dev()
+                    )
+                    ema_params = self._state_dict_to_master_params(state_dict)
+            dist_util.sync_params(ema_params)
+            return ema_params
+        else:
+            raise NotImplementedError
 
     def _load_optimizer_state(self):
         main_checkpoint = find_resume_checkpoint() or self.resume_checkpoint
@@ -174,6 +218,9 @@ class TrainLoop:
             self.opt.load_state_dict(state_dict)
 
     def _setup_fp16(self):
+        ##########################################################
+        ##This function is not supported residual connection net##
+        ##########################################################
         self.master_params = make_master_params(self.model_params)
         self.model.convert_to_fp16()
 
@@ -206,6 +253,7 @@ class TrainLoop:
 
     def forward_backward(self, batch, cond):
         zero_grad(self.model_params)
+        zero_grad(self.residual_params)
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_cond = {
@@ -218,6 +266,7 @@ class TrainLoop:
             compute_losses = functools.partial(
                 self.diffusion.training_losses,
                 self.ddp_model,
+                self.residual_ddp,
                 micro,
                 t,
                 model_kwargs=micro_cond,
@@ -227,7 +276,8 @@ class TrainLoop:
                 losses = compute_losses()
             else:
                 with self.ddp_model.no_sync():
-                    losses = compute_losses()
+                    with self.residual_ddp.no_sync():
+                        losses = compute_losses()
 
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
@@ -245,6 +295,9 @@ class TrainLoop:
                 loss.backward()
 
     def optimize_fp16(self):
+        ############################################################
+        ##This option is not available for residual connection net##
+        ############################################################
         if any(not th.isfinite(p.grad).all() for p in self.model_params):
             self.lg_loss_scale -= 1
             logger.log(f"Found NaN, decreased lg_loss_scale to {self.lg_loss_scale}")
@@ -266,6 +319,9 @@ class TrainLoop:
         self.opt.step()
         for rate, params in zip(self.ema_rate, self.ema_params):
             update_ema(params, self.master_params, rate=rate)
+        if self.residual_connection_net is not None:
+            for rate, params in zip(self.ema_rate, self.residual_ema_params):
+                update_ema(params, self.residual_ema_params, rate=rate)
 
     def _log_grad_norm(self):
         sqsum = 0.0
@@ -288,20 +344,28 @@ class TrainLoop:
             logger.logkv("lg_loss_scale", self.lg_loss_scale)
 
     def save(self):
-        def save_checkpoint(rate, params):
+        def save_checkpoint(rate, params, model_type=""):
             state_dict = self._master_params_to_state_dict(params)
             if dist.get_rank() == 0:
                 logger.log(f"saving model {rate}...")
                 if not rate:
-                    filename = f"model{(self.step+self.resume_step):06d}.pt"
+                    filename = f"model{model_type}{(self.step+self.resume_step):06d}.pt"
                 else:
-                    filename = f"ema_{rate}_{(self.step+self.resume_step):06d}.pt"
+                    if model_type != "":
+                        _model_type = "_" + model_type
+                    else:
+                        _model_type = model_type
+                    filename = f"ema_{rate}{_model_type}_{(self.step+self.resume_step):06d}.pt"
                 with bf.BlobFile(bf.join(get_blob_logdir(), filename), "wb") as f:
                     th.save(state_dict, f)
 
         save_checkpoint(0, self.master_params)
         for rate, params in zip(self.ema_rate, self.ema_params):
             save_checkpoint(rate, params)
+        if self.residual_connection_net is not None:
+            save_checkpoint(0, self.residual_master_params, "residual")
+            for rate, params in zip(self.ema_rate, self.residual_ema_params):
+                save_checkpoint(rate, params, "residual")
 
         if dist.get_rank() == 0:
             with bf.BlobFile(
@@ -356,10 +420,20 @@ def find_resume_checkpoint():
     return None
 
 
-def find_ema_checkpoint(main_checkpoint, step, rate):
+def find_residual_checkpoint(resume_checkpoint, step):
+    filename = f"residual{step}.pt"
+    path = bf.join(bf.dirname(resume_checkpoint), filename)
+    if bf.exists(path):
+        return path
+    return None
+
+
+def find_ema_checkpoint(main_checkpoint, step, rate, model_type=""):
     if main_checkpoint is None:
         return None
     filename = f"ema_{rate}_{(step):06d}.pt"
+    if model_type=="residual":
+        filename = "residual_" + filename
     path = bf.join(bf.dirname(main_checkpoint), filename)
     if bf.exists(path):
         return path
