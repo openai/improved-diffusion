@@ -528,22 +528,22 @@ class ResidualNet(nn.Module):
         self.image_size = image_size
         self.time_embed = nn.Sequential(
             nn.Linear(128, time_embed_dim),
-            nn.SiLU(),
+            SiLU(),
             nn.Linear(time_embed_dim, time_embed_dim),
-            nn.SiLU(),
+            SiLU(),
         )
         if image_size == 32:
             self.model = nn.Sequential(
                 nn.Linear(32 * 32 * 3 + time_embed_dim, 1024),
-                nn.SiLU(),
+                SiLU(),
                 nn.Linear(1024, 512),
-                nn.SiLU(),
+                SiLU(),
                 nn.Linear(512, 128),
-                nn.SiLU(),
+                SiLU(),
                 nn.Linear(128, 32),
-                nn.SiLU(),
+                SiLU(),
                 nn.Linear(32, 8),
-                nn.SiLU(),
+                SiLU(),
                 nn.Linear(8, 1),
                 nn.Sigmoid(),
             )
