@@ -551,7 +551,7 @@ class ResidualNet(nn.Module):
     def forward(self, x, timesteps, y=None):
         h = th.flatten(x, start_dim=1)
         emb = self.time_embed(timestep_embedding(timesteps, 128))
-        inputs = th.concat([h, emb], 1).type(th.float)
+        inputs = th.cat([h, emb], 1).type(th.float)
         return self.model(inputs)
 
 
