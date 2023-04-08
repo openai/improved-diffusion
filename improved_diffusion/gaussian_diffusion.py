@@ -381,7 +381,15 @@ class GaussianDiffusion:
         return t
 
     def p_sample(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+        self,
+        model,
+        residual_model,
+        x,
+        t,
+        clip_denoised=True,
+        denoised_fn=None,
+        residual_x_start=None,
+        model_kwargs=None,
     ):
         """
         Sample x_{t-1} from the model at the given timestep.
@@ -400,10 +408,12 @@ class GaussianDiffusion:
         """
         out = self.p_mean_variance(
             model,
+            residual_model,
             x,
             t,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
+            residual_x_start=residual_x_start,
             model_kwargs=model_kwargs,
         )
         noise = th.randn_like(x)
@@ -416,6 +426,7 @@ class GaussianDiffusion:
     def p_sample_loop(
         self,
         model,
+        residual_model,
         shape,
         noise=None,
         clip_denoised=True,
@@ -444,6 +455,7 @@ class GaussianDiffusion:
         final = None
         for sample in self.p_sample_loop_progressive(
             model,
+            residual_model,
             shape,
             noise=noise,
             clip_denoised=clip_denoised,
@@ -458,6 +470,7 @@ class GaussianDiffusion:
     def p_sample_loop_progressive(
         self,
         model,
+        residual_model,
         shape,
         noise=None,
         clip_denoised=True,
@@ -481,6 +494,7 @@ class GaussianDiffusion:
             img = noise
         else:
             img = th.randn(*shape, device=device)
+        residual_x_start = None
         indices = list(range(self.num_timesteps))[::-1]
 
         if progress:
@@ -494,14 +508,17 @@ class GaussianDiffusion:
             with th.no_grad():
                 out = self.p_sample(
                     model,
+                    residual_model,
                     img,
                     t,
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
+                    residual_x_start=residual_x_start,
                     model_kwargs=model_kwargs,
                 )
                 yield out
                 img = out["sample"]
+                residual_x_start = out["pred_xstart"]
 
     def ddim_sample(
         self,
