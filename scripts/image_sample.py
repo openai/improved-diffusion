@@ -16,7 +16,9 @@ from improved_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
     create_model_and_diffusion,
+    create_residual_connection_net,
     model_and_diffusion_defaults,
+    residual_connection_net_defaults,
 )
 
 
@@ -30,11 +32,19 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
+    residual_connection_net = create_residual_connection_net(
+        **args_to_dict(args, residual_connection_net_defaults())
+    )
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
+    residual_connection_net.load_state_dict(
+        dist_util.load_state_dict(args.residual_path, map_location="cpu")
+    )
     model.to(dist_util.dev())
     model.eval()
+    residual_connection_net.to(dist_util.dev())
+    residual_connection_net.eval()
 
     logger.log("sampling...")
     all_images = []
@@ -51,6 +61,7 @@ def main():
         )
         sample = sample_fn(
             model,
+            residual_connection_net,
             (args.batch_size, 3, args.image_size, args.image_size),
             clip_denoised=args.clip_denoised,
             model_kwargs=model_kwargs,
@@ -95,8 +106,10 @@ def create_argparser():
         batch_size=16,
         use_ddim=False,
         model_path="",
+        residual_path="",
     )
     defaults.update(model_and_diffusion_defaults())
+    defaults.update(residual_connection_net_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
     return parser
