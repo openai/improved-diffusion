@@ -41,7 +41,9 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     elif schedule_name == "exponential":
         beta_max = min(0.1 * 1000 / num_diffusion_timesteps, 0.98)
         beta_min = 0.0001 * 1000 / num_diffusion_timesteps
-        return np.geomspace(beta_min, beta_max, num_diffusion_timesteps, dtype=np.float64)
+        return np.geomspace(
+            beta_min, beta_max, num_diffusion_timesteps, dtype=np.float64
+        )
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
 
