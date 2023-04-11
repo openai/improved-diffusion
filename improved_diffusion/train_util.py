@@ -212,7 +212,7 @@ class TrainLoop:
                     state_dict = dist_util.load_state_dict(
                         ema_checkpoint, map_location=dist_util.dev()
                     )
-                    ema_params = self._state_dict_to_master_params(state_dict)
+                    ema_params = self._state_dict_to_master_params(state_dict, model_type="residual")
             dist_util.sync_params(ema_params)
             return ema_params
         else:
@@ -416,7 +416,10 @@ class TrainLoop:
         return state_dict
 
     def _state_dict_to_master_params(self, state_dict, model_type=""):
-        params = [state_dict[name] for name, _ in self.model.named_parameters()]
+        if model_type=="residual":
+            params = [state_dict[name] for name, _ in self.residual_connection_net.named_parameters()]
+        else:
+            params = [state_dict[name] for name, _ in self.model.named_parameters()]
         if self.use_fp16:
             return make_master_params(params)
         else:

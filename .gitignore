@@ -7,3 +7,5 @@ cifar_test/
 improved_diffusion.egg-info/
 images/
 *ipynb_checkpoints*
+*.pt
+*.npz

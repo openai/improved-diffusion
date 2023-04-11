@@ -467,6 +467,57 @@ class GaussianDiffusion:
             final = sample
         return final["sample"]
 
+    def p_sample_loop_early_stop(
+        self,
+        model,
+        residual_model,
+        shape,
+        noise=None,
+        clip_denoised=True,
+        denoised_fn=None,
+        model_kwargs=None,
+        device=None,
+        progress=False,
+        end_step=1,
+    ):
+        """
+        Generate samples from the model in early-stop mode.
+        Final sample is `pred_xstart` output generated from sample at specified `end-step`
+        :param model: the model module.
+        :param shape: the shape of the samples, (N, C, H, W).
+        :param noise: if specified, the noise from the encoder to sample.
+                      Should be of the same shape as `shape`.
+        :param clip_denoised: if True, clip x_start predictions to [-1, 1].
+        :param denoised_fn: if not None, a function which applies to the
+            x_start prediction before it is used to sample.
+        :param model_kwargs: if not None, a dict of extra keyword arguments to
+            pass to the model. This can be used for conditioning.
+        :param device: if specified, the device to create the samples on.
+                       If not specified, use a model parameter's device.
+        :param progress: if True, show a tqdm progress bar.
+        :param end_step: the step where sampling process stops
+        :param start: which timestep the sample process starts
+        :return: list of samples at each step, which behind `end_step`
+                 (`end_step`, B, C, H, W)
+        """
+        final = None
+        samples_arr = []
+        for sample in self.p_sample_loop_progressive(
+            model,
+            residual_model,
+            shape,
+            noise=noise,
+            clip_denoised=clip_denoised,
+            denoised_fn=denoised_fn,
+            model_kwargs=model_kwargs,
+            device=device,
+            progress=progress,
+        ):
+            final = sample["pred_xstart"]
+            samples_arr.append(final)
+        output = th.stack(samples_arr)[-end_step:]
+        return output
+
     def p_sample_loop_progressive(
         self,
         model,
@@ -970,7 +1021,7 @@ def _extract_into_tensor(arr, timesteps, broadcast_shape):
                             dimension equal to the length of timesteps.
     :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
     """
-    res = th.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
+    res = th.from_numpy(arr).to(device=timesteps.device)[timesteps.long()].float()
     while len(res.shape) < len(broadcast_shape):
         res = res[..., None]
     return res.expand(broadcast_shape)
