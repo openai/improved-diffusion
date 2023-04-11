@@ -129,7 +129,7 @@ def create_argparser():
         use_ddim=False,
         model_path="",
         residual_path="",
-        early_stop=0
+        early_stop=0,
     )
     defaults.update(model_and_diffusion_defaults())
     defaults.update(residual_connection_net_defaults())
