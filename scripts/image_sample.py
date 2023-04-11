@@ -59,9 +59,7 @@ def main():
 
         if args.early_stop:
             sample_fn = (
-                diffusion.p_sample_loop_early_stop
-                if not args.use_ddim
-                else diffusion.ddim_sample_loop
+              diffusion.p_sample_loop_early_stop if not args.use_ddim else diffusion.ddim_sample_loop
             )
             sample = sample_fn(
                 model,
@@ -69,16 +67,14 @@ def main():
                 (args.batch_size, 3, args.image_size, args.image_size),
                 clip_denoised=args.clip_denoised,
                 model_kwargs=model_kwargs,
-                end_step=args.early_stop,
-            )
+                end_step=args.early_stop
+                )
             sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
             sample = sample.permute(0, 1, 3, 4, 2)
             sample = sample.contiguous()
         else:
             sample_fn = (
-                diffusion.p_sample_loop
-                if not args.use_ddim
-                else diffusion.ddim_sample_loop
+              diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
             )
             sample = sample_fn(
                 model,
@@ -90,7 +86,7 @@ def main():
             sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
             sample = sample.permute(0, 2, 3, 1)
             sample = sample.contiguous()
-
+        
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
         dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
         all_images.extend([sample.cpu().numpy() for sample in gathered_samples])

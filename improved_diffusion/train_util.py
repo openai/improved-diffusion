@@ -212,9 +212,11 @@ class TrainLoop:
                     state_dict = dist_util.load_state_dict(
                         ema_checkpoint, map_location=dist_util.dev()
                     )
+
                     ema_params = self._state_dict_to_master_params(
                         state_dict, model_type="residual"
                     )
+
             dist_util.sync_params(ema_params)
             return ema_params
         else:
