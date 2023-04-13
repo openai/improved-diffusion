@@ -894,7 +894,10 @@ class GaussianDiffusion:
             ## Second loop to train residual connection net ##
             ##################################################
 
-            x_t_1 = self.q_sample(x_start, t, noise=None)
+            # x_t_1 = self.q_sample(x_start, t, noise=None)
+            x_t_1 = mean_prediction + th.exp(
+                0.5 * log_variance_prediction
+            ) * th.randn_like(x_t)
             nonzero_mask = (t != 0).float()  # no noise when t == 0
             t_1 = th.clamp(t - 1.0, min=0).type(th.int)
             mean_variance_1 = self.p_mean_variance(
