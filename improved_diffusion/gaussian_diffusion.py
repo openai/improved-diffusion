@@ -38,6 +38,12 @@ def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
             num_diffusion_timesteps,
             lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2,
         )
+    elif schedule_name == "exponential":
+        beta_max = min(0.1 * 1000 / num_diffusion_timesteps, 0.98)
+        beta_min = 0.0001 * 1000 / num_diffusion_timesteps
+        return np.geomspace(
+            beta_min, beta_max, num_diffusion_timesteps, dtype=np.float64
+        )
     else:
         raise NotImplementedError(f"unknown beta schedule: {schedule_name}")
 
@@ -888,7 +894,10 @@ class GaussianDiffusion:
             ## Second loop to train residual connection net ##
             ##################################################
 
-            x_t_1 = self.q_sample(x_start, t, noise=None)
+            # x_t_1 = self.q_sample(x_start, t, noise=None)
+            x_t_1 = mean_prediction + th.exp(
+                0.5 * log_variance_prediction
+            ) * th.randn_like(x_t)
             nonzero_mask = (t != 0).float()  # no noise when t == 0
             t_1 = th.clamp(t - 1.0, min=0).type(th.int)
             mean_variance_1 = self.p_mean_variance(
