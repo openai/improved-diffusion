@@ -15,7 +15,7 @@ def residual_connection_net_defaults():
     """
     Defaults residual connection net setting.
     """
-    return dict(image_size=32, time_embed_dim=128)
+    return dict(use_residual=True, image_size=32, time_embed_dim=128)
 
 
 def create_residual_connection_net(image_size: int = 32, time_embed_dim: int = 128):

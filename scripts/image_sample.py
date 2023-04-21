@@ -32,19 +32,24 @@ def main():
     model, diffusion = create_model_and_diffusion(
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
-    residual_connection_net = create_residual_connection_net(
-        **args_to_dict(args, residual_connection_net_defaults())
-    )
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
-    residual_connection_net.load_state_dict(
-        dist_util.load_state_dict(args.residual_path, map_location="cpu")
-    )
+
+    if args.use_residual:
+        residual_connection_net = create_residual_connection_net(
+            **args_to_dict(args, residual_connection_net_defaults())
+        )
+        residual_connection_net.load_state_dict(
+            dist_util.load_state_dict(args.residual_path, map_location="cpu")
+        )
+        residual_connection_net.to(dist_util.dev())
+        residual_connection_net.eval()
+    else:
+        residual_connection_net = None
+
     model.to(dist_util.dev())
     model.eval()
-    residual_connection_net.to(dist_util.dev())
-    residual_connection_net.eval()
 
     logger.log("sampling...")
     all_images = []

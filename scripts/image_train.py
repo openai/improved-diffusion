@@ -29,11 +29,13 @@ def main():
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     # feat.residual_connection
-    residual_connection_net = create_residual_connection_net(
-        **args_to_dict(args, residual_connection_net_defaults().keys())
-    )
-    if residual_connection_net is not None:
+    if args.use_residual:
+        residual_connection_net = create_residual_connection_net(
+            **args_to_dict(args, residual_connection_net_defaults().keys())
+        )
         residual_connection_net.to(dist_util.dev())
+    else:
+        residual_connection_net = None
     #####
     model.to(dist_util.dev())
     schedule_sampler = create_named_schedule_sampler(args.schedule_sampler, diffusion)
