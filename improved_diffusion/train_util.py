@@ -73,9 +73,13 @@ class TrainLoop:
         self.global_batch = self.batch_size * dist.get_world_size()
 
         self.model_params = list(self.model.parameters())
-        self.residual_params = list(self.residual_connection_net.parameters())
         self.master_params = self.model_params
-        self.residual_master_params = self.residual_params
+        if self.residual_connection_net is not None:
+            self.residual_params = list(self.residual_connection_net.parameters())
+            self.residual_master_params = self.residual_params
+        else:
+            self.residual_params = None
+            self.residual_master_params = None
         self.lg_loss_scale = INITIAL_LOG_LOSS_SCALE
         self.sync_cuda = th.cuda.is_available()
 
@@ -108,17 +112,23 @@ class TrainLoop:
             self.ema_params = [
                 self._load_ema_parameters(rate) for rate in self.ema_rate
             ]
-            self.residual_ema_params = [
-                self._load_ema_parameters(rate, "residual") for rate in self.ema_rate
-            ]
+            if self.residual_connection_net is not None:
+                self.residual_ema_params = [
+                    self._load_ema_parameters(rate, "residual") for rate in self.ema_rate
+                ]
+            else:
+                self.residual_ema_params = [None for _ in self.ema_rate]
         else:
             self.ema_params = [
                 copy.deepcopy(self.master_params) for _ in range(len(self.ema_rate))
             ]
-            self.residual_ema_params = [
-                copy.deepcopy(self.residual_master_params)
-                for _ in range(len(self.ema_rate))
-            ]
+            if self.residual_connection_net is not None:
+                self.residual_ema_params = [
+                    copy.deepcopy(self.residual_master_params)
+                    for _ in range(len(self.ema_rate))
+                ]
+            else:
+                self.residual_ema_params = [None for _ in self.ema_rate]
 
         if th.cuda.is_available():
             self.use_ddp = True
@@ -130,14 +140,17 @@ class TrainLoop:
                 bucket_cap_mb=128,
                 find_unused_parameters=False,
             )
-            self.residual_ddp = DDP(
-                self.residual_connection_net,
-                device_ids=[dist_util.dev()],
-                output_device=dist_util.dev(),
-                broadcast_buffers=False,
-                bucket_cap_mb=128,
-                find_unused_parameters=False,
-            )
+            if self.residual_connection_net is not None:
+                self.residual_ddp = DDP(
+                    self.residual_connection_net,
+                    device_ids=[dist_util.dev()],
+                    output_device=dist_util.dev(),
+                    broadcast_buffers=False,
+                    bucket_cap_mb=128,
+                    find_unused_parameters=False,
+                )
+            else:
+                self.residual_ddp = None
         else:
             if dist.get_world_size() > 1:
                 logger.warn(
@@ -266,7 +279,8 @@ class TrainLoop:
 
     def forward_backward(self, batch, cond):
         zero_grad(self.model_params)
-        zero_grad(self.residual_params)
+        if self.residual_connection_net is not None:
+            zero_grad(self.residual_params)
         for i in range(0, batch.shape[0], self.microbatch):
             micro = batch[i : i + self.microbatch].to(dist_util.dev())
             micro_cond = {
@@ -289,7 +303,10 @@ class TrainLoop:
                 losses = compute_losses()
             else:
                 with self.ddp_model.no_sync():
-                    with self.residual_ddp.no_sync():
+                    if self.residual_connection_net is not None:
+                        with self.residual_ddp.no_sync():
+                            losses = compute_losses()
+                    else:
                         losses = compute_losses()
 
             if isinstance(self.schedule_sampler, LossAwareSampler):
