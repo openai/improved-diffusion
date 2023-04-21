@@ -14,6 +14,8 @@ from improved_diffusion.script_util import (
     add_dict_to_argparser,
     args_to_dict,
     create_model_and_diffusion,
+    create_residual_connection_net,
+    residual_connection_net_defaults,
     model_and_diffusion_defaults,
 )
 
@@ -31,6 +33,19 @@ def main():
     model.load_state_dict(
         dist_util.load_state_dict(args.model_path, map_location="cpu")
     )
+
+    if args.use_residual:
+        residual_connection_net = create_residual_connection_net(
+            **args_to_dict(args, residual_connection_net_defaults())
+        )
+        residual_connection_net.load_state_dict(
+            dist_util.load_state_dict(args.residual_path, map_location="cpu")
+        )
+        residual_connection_net.to(dist_util.dev())
+        residual_connection_net.eval()
+    else:
+        residual_connection_net = None
+
     model.to(dist_util.dev())
     model.eval()
 
@@ -44,10 +59,10 @@ def main():
     )
 
     logger.log("evaluating...")
-    run_bpd_evaluation(model, diffusion, data, args.num_samples, args.clip_denoised)
+    run_bpd_evaluation(model, residual_connection_net, diffusion, data, args.num_samples, args.clip_denoised)
 
 
-def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
+def run_bpd_evaluation(model, residual_model, diffusion, data, num_samples, clip_denoised):
     all_bpd = []
     all_metrics = {"vb": [], "mse": [], "xstart_mse": []}
     num_complete = 0
@@ -56,7 +71,7 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
         batch = batch.to(dist_util.dev())
         model_kwargs = {k: v.to(dist_util.dev()) for k, v in model_kwargs.items()}
         minibatch_metrics = diffusion.calc_bpd_loop(
-            model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model, residual_model, batch, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
 
         for key, term_list in all_metrics.items():
@@ -84,8 +99,9 @@ def run_bpd_evaluation(model, diffusion, data, num_samples, clip_denoised):
 
 def create_argparser():
     defaults = dict(
-        data_dir="", clip_denoised=True, num_samples=1000, batch_size=1, model_path=""
+        data_dir="", clip_denoised=True, num_samples=1000, batch_size=1, model_path="", residual_path=""
     )
+    defaults.update(residual_connection_net_defaults())
     defaults.update(model_and_diffusion_defaults())
     parser = argparse.ArgumentParser()
     add_dict_to_argparser(parser, defaults)
