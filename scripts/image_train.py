@@ -29,7 +29,7 @@ def main():
         **args_to_dict(args, model_and_diffusion_defaults().keys())
     )
     # feat.residual_connection
-    if args.user_residual:
+    if args.use_residual:
         residual_connection_net = create_residual_connection_net(
             **args_to_dict(args, residual_connection_net_defaults().keys())
         )
