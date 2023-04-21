@@ -741,7 +741,7 @@ class GaussianDiffusion:
                 img = out["sample"]
 
     def _vb_terms_bpd(
-        self, model, x_start, x_t, t, clip_denoised=True, model_kwargs=None
+        self, model, residual_model, x_start, x_t, x_ad_1, t, clip_denoised=True, model_kwargs=None
     ):
         """
         Get a term for the variational lower-bound.
@@ -756,8 +756,18 @@ class GaussianDiffusion:
         true_mean, _, true_log_variance_clipped = self.q_posterior_mean_variance(
             x_start=x_start, x_t=x_t, t=t
         )
+        ###### residual connection
+        if x_ad_1 is not None:
+            x_start_previous = self.p_mean_variance(
+                model,
+                residual_model,
+                x_ad_1,
+                t + 1.
+            )["pred_xstart"]
+        else:
+            x_start_previous = None
         out = self.p_mean_variance(
-            model, x_t, t, clip_denoised=clip_denoised, model_kwargs=model_kwargs
+            model, residual_model, x_t, t, residual_x_start=x_start_previous, clip_denoised=clip_denoised, model_kwargs=model_kwargs
         )
         kl = normal_kl(
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
@@ -953,7 +963,7 @@ class GaussianDiffusion:
         )
         return mean_flat(kl_prior) / np.log(2.0)
 
-    def calc_bpd_loop(self, model, x_start, clip_denoised=True, model_kwargs=None):
+    def calc_bpd_loop(self, model, residual_model, x_start, clip_denoised=True, model_kwargs=None):
         """
         Compute the entire variational lower-bound, measured in bits-per-dim,
         as well as other related quantities.
@@ -978,6 +988,11 @@ class GaussianDiffusion:
         xstart_mse = []
         mse = []
         for t in list(range(self.num_timesteps))[::-1]:
+            if t < self.num_timesteps -1:
+                t_batch_ad_1 = th.tensor([t+1]*batch_size, device=device)
+                x_ad_1 = self.q_sample(x_start=x_start, t=t_batch_ad_1)
+            else:
+                x_ad_1 = None
             t_batch = th.tensor([t] * batch_size, device=device)
             noise = th.randn_like(x_start)
             x_t = self.q_sample(x_start=x_start, t=t_batch, noise=noise)
@@ -985,8 +1000,10 @@ class GaussianDiffusion:
             with th.no_grad():
                 out = self._vb_terms_bpd(
                     model,
+                    residual_model,
                     x_start=x_start,
                     x_t=x_t,
+                    x_ad_1 = x_ad_1,
                     t=t_batch,
                     clip_denoised=clip_denoised,
                     model_kwargs=model_kwargs,
