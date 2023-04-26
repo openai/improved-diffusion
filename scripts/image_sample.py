@@ -54,6 +54,12 @@ def main():
     logger.log("sampling...")
     all_images = []
     all_labels = []
+    
+    #################################
+    ## Create residual value array ##
+    #################################
+    if args.return_residual_value:
+        all_residual_values = []
     while len(all_images) * args.batch_size < args.num_samples:
         model_kwargs = {}
         if args.class_cond:
@@ -62,35 +68,24 @@ def main():
             )
             model_kwargs["y"] = classes
 
-        if args.early_stop:
-            sample_fn = (
-              diffusion.p_sample_loop_early_stop if not args.use_ddim else diffusion.ddim_sample_loop
+        sample_fn = diffusion.p_sample_loop_early_stop
+        sample_output = sample_fn(
+            model,
+            residual_connection_net,
+            (args.batch_size, 3, args.image_size, args.image_size),
+            clip_denoised=args.clip_denoised,
+            model_kwargs=model_kwargs,
+            end_step=args.early_stop,
+            return_residual_value=args.return_residual_value,
             )
-            sample = sample_fn(
-                model,
-                residual_connection_net,
-                (args.batch_size, 3, args.image_size, args.image_size),
-                clip_denoised=args.clip_denoised,
-                model_kwargs=model_kwargs,
-                end_step=args.early_stop
-                )
-            sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-            sample = sample.permute(0, 1, 3, 4, 2)
-            sample = sample.contiguous()
-        else:
-            sample_fn = (
-              diffusion.p_sample_loop if not args.use_ddim else diffusion.ddim_sample_loop
-            )
-            sample = sample_fn(
-                model,
-                residual_connection_net,
-                (args.batch_size, 3, args.image_size, args.image_size),
-                clip_denoised=args.clip_denoised,
-                model_kwargs=model_kwargs,
-            )
-            sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
-            sample = sample.permute(0, 2, 3, 1)
-            sample = sample.contiguous()
+
+        #################
+        ## Save images ##
+        #################
+        sample = sample_output["pred_xstart"]
+        sample = ((sample + 1) * 127.5).clamp(0, 255).to(th.uint8)
+        sample = sample.permute(0, 1, 3, 4, 2)
+        sample = sample.contiguous()
         
         gathered_samples = [th.zeros_like(sample) for _ in range(dist.get_world_size())]
         dist.all_gather(gathered_samples, sample)  # gather not supported with NCCL
@@ -103,16 +98,22 @@ def main():
             all_labels.extend([labels.cpu().numpy() for labels in gathered_labels])
         logger.log(f"created {len(all_images) * args.batch_size} samples")
 
-    if args.early_stop:
-        arr = np.concatenate(all_images, axis=1)
-        arr = arr[:, : args.num_samples]
-    else:
-        arr = np.concatenate(all_images, axis=0)
-        arr = arr[: args.num_samples]
+        ##########################
+        ## Save residual values ##
+        ##########################
+        if args.return_residual_value:
+            residual_value = sample_output["residual_value"]
+            gathered_values = [th.zeros_like(residual_value) for _ in range(dist.get_world_size())]
+            dist.all_gather(gathered_values, sample)
+            all_residual_values.extend([values.cpu().numpy() for values in gathered_values])
+
+    arr = np.concatenate(all_images, axis=1)
+    arr = arr[:, : args.num_samples]
 
     if args.class_cond:
         label_arr = np.concatenate(all_labels, axis=0)
         label_arr = label_arr[: args.num_samples]
+
     if dist.get_rank() == 0:
         shape_str = "x".join([str(x) for x in arr.shape])
         out_path = os.path.join(logger.get_dir(), f"samples_{shape_str}.npz")
@@ -120,6 +121,16 @@ def main():
         if args.class_cond:
             np.savez(out_path, arr, label_arr)
         else:
+            np.savez(out_path, arr)
+
+    if args.return_residual_value:
+        arr = np.concatenate(all_residual_values, axis=1)
+        arr = arr[:, : args.num_samples]
+        
+        if dist.get_rank() == 0:
+            shape_str = "x".join([str(x) for x in arr.shape])
+            out_path = os.path.join(logger.get_dir(), f"residuals_{shape_str}.npz")
+            logger.log(f"saving to {out_path}")
             np.savez(out_path, arr)
 
     dist.barrier()
@@ -134,7 +145,8 @@ def create_argparser():
         use_ddim=False,
         model_path="",
         residual_path="",
-        early_stop=0,
+        early_stop=1,
+        return_residual_value=False,
     )
     defaults.update(model_and_diffusion_defaults())
     defaults.update(residual_connection_net_defaults())

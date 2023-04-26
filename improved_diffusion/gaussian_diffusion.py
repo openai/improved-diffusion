@@ -328,14 +328,15 @@ class GaussianDiffusion:
                     self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
                 )
 
+            residual_val_raw = th.tensor([-1]*x.shape[0])
             if residual_x_start is not None:
                 if residual_connection_net is not None:
-                    residual_val = residual_connection_net(
+                    residual_val_raw = residual_connection_net(
                         residual_x_start, t
                     ).squeeze()
-                    while len(residual_val.shape) < len(pred_xstart.shape):
-                        residual_val = residual_val[..., None]
-                    residual_val = residual_val.expand(pred_xstart.shape)
+                    while len(residual_val_raw.shape) < len(pred_xstart.shape):
+                        residual_val = residual_val_raw[..., None]
+                    residual_val = residual_val_raw.expand(pred_xstart.shape)
                     pred_xstart = (
                         1.0 - residual_val
                     ) * pred_xstart + residual_val * residual_x_start
@@ -356,6 +357,7 @@ class GaussianDiffusion:
             "variance": model_variance,
             "log_variance": model_log_variance,
             "pred_xstart": pred_xstart,
+            "residual_value": residual_val_raw,
         }
 
     def _predict_xstart_from_eps(self, x_t, t, eps):
@@ -396,6 +398,7 @@ class GaussianDiffusion:
         denoised_fn=None,
         residual_x_start=None,
         model_kwargs=None,
+        return_residual_value=False,
     ):
         """
         Sample x_{t-1} from the model at the given timestep.
@@ -427,51 +430,10 @@ class GaussianDiffusion:
             (t != 0).float().view(-1, *([1] * (len(x.shape) - 1)))
         )  # no noise when t == 0
         sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
-
-    def p_sample_loop(
-        self,
-        model,
-        residual_model,
-        shape,
-        noise=None,
-        clip_denoised=True,
-        denoised_fn=None,
-        model_kwargs=None,
-        device=None,
-        progress=False,
-    ):
-        """
-        Generate samples from the model.
-
-        :param model: the model module.
-        :param shape: the shape of the samples, (N, C, H, W).
-        :param noise: if specified, the noise from the encoder to sample.
-                      Should be of the same shape as `shape`.
-        :param clip_denoised: if True, clip x_start predictions to [-1, 1].
-        :param denoised_fn: if not None, a function which applies to the
-            x_start prediction before it is used to sample.
-        :param model_kwargs: if not None, a dict of extra keyword arguments to
-            pass to the model. This can be used for conditioning.
-        :param device: if specified, the device to create the samples on.
-                       If not specified, use a model parameter's device.
-        :param progress: if True, show a tqdm progress bar.
-        :return: a non-differentiable batch of samples.
-        """
-        final = None
-        for sample in self.p_sample_loop_progressive(
-            model,
-            residual_model,
-            shape,
-            noise=noise,
-            clip_denoised=clip_denoised,
-            denoised_fn=denoised_fn,
-            model_kwargs=model_kwargs,
-            device=device,
-            progress=progress,
-        ):
-            final = sample
-        return final["sample"]
+        if return_residual_value:
+            return {"sample": sample, "pred_xstart": out["pred_xstart"], "residual_value": out["residual_value"]}
+        else:
+            return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
     def p_sample_loop_early_stop(
         self,
@@ -485,6 +447,7 @@ class GaussianDiffusion:
         device=None,
         progress=False,
         end_step=1,
+        return_residual_value=False,
     ):
         """
         Generate samples from the model in early-stop mode.
@@ -518,11 +481,12 @@ class GaussianDiffusion:
             model_kwargs=model_kwargs,
             device=device,
             progress=progress,
+            return_residual_value=return_residual_value,
         ):
             final = sample["pred_xstart"]
             samples_arr.append(final)
         output = th.stack(samples_arr)[-end_step:]
-        return output
+        return {"pred_xstart": output}
 
     def p_sample_loop_progressive(
         self,
@@ -535,6 +499,7 @@ class GaussianDiffusion:
         model_kwargs=None,
         device=None,
         progress=False,
+        return_residual_value=False,
     ):
         """
         Generate samples from the model and yield intermediate samples from
@@ -572,6 +537,7 @@ class GaussianDiffusion:
                     denoised_fn=denoised_fn,
                     residual_x_start=residual_x_start,
                     model_kwargs=model_kwargs,
+                    return_residual_value=return_residual_value,
                 )
                 yield out
                 img = out["sample"]
