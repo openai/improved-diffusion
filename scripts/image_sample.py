@@ -104,7 +104,7 @@ def main():
         if args.return_residual_value:
             residual_value = sample_output["residual_value"]
             gathered_values = [th.zeros_like(residual_value) for _ in range(dist.get_world_size())]
-            dist.all_gather(gathered_values, sample)
+            dist.all_gather(gathered_values, residual_value)
             all_residual_values.extend([values.cpu().numpy() for values in gathered_values])
 
     arr = np.concatenate(all_images, axis=1)

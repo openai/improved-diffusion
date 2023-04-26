@@ -18,7 +18,7 @@ def residual_connection_net_defaults():
     return dict(use_residual=True, image_size=32, time_embed_dim=128)
 
 
-def create_residual_connection_net(image_size: int = 32, time_embed_dim: int = 128):
+def create_residual_connection_net(use_residual=True, image_size: int = 32, time_embed_dim: int = 128):
     return ResidualNet(image_size, time_embed_dim)
 
 

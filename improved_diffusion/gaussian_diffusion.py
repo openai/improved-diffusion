@@ -335,7 +335,7 @@ class GaussianDiffusion:
                         residual_x_start, t
                     ).squeeze()
                     while len(residual_val_raw.shape) < len(pred_xstart.shape):
-                        residual_val = residual_val_raw[..., None]
+                        residual_val_raw = residual_val_raw[..., None]
                     residual_val = residual_val_raw.expand(pred_xstart.shape)
                     pred_xstart = (
                         1.0 - residual_val
@@ -471,6 +471,8 @@ class GaussianDiffusion:
         """
         final = None
         samples_arr = []
+        residual_value_arr = []
+        i = 0
         for sample in self.p_sample_loop_progressive(
             model,
             residual_model,
@@ -485,8 +487,12 @@ class GaussianDiffusion:
         ):
             final = sample["pred_xstart"]
             samples_arr.append(final)
+            if i != 0:
+                residual_value_arr.append(sample["residual_value"])
+            i+=1
         output = th.stack(samples_arr)[-end_step:]
-        return {"pred_xstart": output}
+        residual_value_arr = th.stack(residual_value_arr)
+        return {"pred_xstart": output, "residual_value": residual_value_arr}
 
     def p_sample_loop_progressive(
         self,
@@ -860,7 +866,7 @@ class GaussianDiffusion:
             nonzero_mask = (t != 0).float()  # no noise when t == 0
             
             terms["mse"] += (mse_first + mse_second) * nonzero_mask / 2
-            terms["mse"] += mean_flat((pred_xstart_first - pred_xstart_second) ** 2)
+            # terms["mse"] += mean_flat((pred_xstart_first - pred_xstart_second) ** 2)
             terms["loss"] = terms["mse"]
 
         else:
@@ -954,9 +960,12 @@ class GaussianDiffusion:
         xstart_mse = []
         mse = []
         for t in list(range(self.num_timesteps))[::-1]:
-            if t < self.num_timesteps -1:
-                t_batch_ad_1 = th.tensor([t+1]*batch_size, device=device)
-                x_ad_1 = self.q_sample(x_start=x_start, t=t_batch_ad_1)
+            if residual_model != None:
+                if t < self.num_timesteps -1:
+                    t_batch_ad_1 = th.tensor([t+1]*batch_size, device=device)
+                    x_ad_1 = self.q_sample(x_start=x_start, t=t_batch_ad_1)
+                else:
+                    x_ad_1 = None
             else:
                 x_ad_1 = None
             t_batch = th.tensor([t] * batch_size, device=device)
