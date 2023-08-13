@@ -12,6 +12,7 @@ Clone this repository and navigate to it in your terminal. Then run:
 
 ```
 pip install -e .
+conda install mpi4py
 ```
 
 This should install the `improved_diffusion` python package that the scripts depend on.
